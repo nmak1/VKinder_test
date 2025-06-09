@@ -1,4 +1,20 @@
-pyTelegramBotAPI==4.12.0
-python-dotenv==1.0.0
-SQLAlchemy==2.0.23
+# Библиотека для работы с Telegram Bot API
+pyTelegramBotAPI==4.14.0
+
+# Библиотека для работы с HTTP-запросами
 requests==2.31.0
+
+# ORM для работы с базами данных
+SQLAlchemy==2.0.23
+
+# Драйвер для подключения к PostgreSQL
+psycopg2-binary==2.9.9
+
+# Библиотека для загрузки переменных окружения из .env файла
+python-dotenv==1.0.0
+
+# Утилиты для работы с базами данных через SQLAlchemy
+sqlalchemy-utils==0.41.1
+
+# Библиотека для работы с датами и временем, для вычисления возраста пользователей
+python-dateutil==2.8.2
