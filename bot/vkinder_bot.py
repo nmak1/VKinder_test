@@ -51,7 +51,7 @@ class VKinderBot:
             raise
 
     def _register_handlers(self):
-        """Регистрация обработчиков команд"""
+        """Регистрация всех обработчиков команд и сообщений"""
 
         @self.bot.message_handler(commands=['start'])
         def handle_start(message):
@@ -76,6 +76,65 @@ class VKinderBot:
         @self.bot.message_handler(content_types=['text'])
         def handle_text(message):
             self._handle_text_message(message)
+
+    def _handle_callback_query(self, call: types.CallbackQuery) -> None:
+        # Проверяем, что callback пришел от того же пользователя
+        if call.from_user.id != call.message.chat.id:
+            self.bot.answer_callback_query(call.id, "Действие недоступно", show_alert=True)
+            return
+        """Обработка всех callback-запросов от inline-кнопок"""
+        try:
+            user_id = call.from_user.id
+            chat_id = call.message.chat.id
+            data = call.data
+
+            logger.info(f"Callback from {user_id}: {data}")
+
+            # Удаляем клавиатуру у исходного сообщения
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=call.message.message_id,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"Couldn't remove reply markup: {e}")
+
+            # Обработка разных типов callback-запросов
+            if data == 'search':
+                self._handle_search_command(call.message)
+            elif data == 'favorites':
+                self._handle_favorites_command(call.message)
+            elif data == 'next_match':
+                self._show_next_match(call.message, user_id)
+            elif data == 'add_favorite':
+                self._add_current_match_to_favorites(call.message, user_id)
+            elif data == 'add_blacklist':
+                self._add_current_match_to_blacklist(call.message, user_id)
+            elif data == 'back_to_menu':
+                self._handle_start_command(call.message)
+            else:
+                logger.warning(f"Unknown callback data: {data}")
+                self.bot.answer_callback_query(
+                    call.id,
+                    "Неизвестная команда",
+                    show_alert=False
+                )
+
+            # Подтверждаем получение callback
+            self.bot.answer_callback_query(call.id)
+
+        except Exception as e:
+            logger.error(f"Error handling callback: {e}")
+            self.notifier.send_admin(f"Callback error: {e}\nData: {call.data}")
+            try:
+                self.bot.answer_callback_query(
+                    call.id,
+                    "⚠️ Произошла ошибка",
+                    show_alert=True
+                )
+            except Exception as e:
+                logger.error(f"Failed to answer callback: {e}")
 
     def _handle_start_command(self, message: types.Message):
         """Обработка команды /start"""
@@ -130,6 +189,71 @@ class VKinderBot:
             logger.error(f"Ошибка в search команде: {e}")
             self._send_error_message(message.chat.id)
 
+    def _show_next_match(self, message: types.Message, user_id: int) -> None:
+        """Показывает следующую анкету в результатах поиска"""
+        try:
+            if user_id not in self.current_match_index:
+                self.current_match_index[user_id] = 0
+            else:
+                self.current_match_index[user_id] += 1
+
+            self._show_current_match(message.chat.id, user_id)
+        except Exception as e:
+            logger.error(f"Error showing next match: {e}")
+            self.notifier.notify_error(message.chat.id, "search")
+
+    def _add_current_match_to_favorites(self, message: types.Message, user_id: int) -> None:
+        """Добавляет текущую анкету в избранное"""
+        try:
+            if user_id not in self.search_results or user_id not in self.current_match_index:
+                self.notifier.notify_user(user_id, "Нет активных результатов поиска")
+                return
+
+            current_index = self.current_match_index[user_id]
+            match = self.search_results[user_id][current_index]
+
+            success = self.db.add_to_favorites(
+                telegram_id=user_id,
+                target_vk_id=match['id'],
+                target_name=f"{match.get('first_name', '')} {match.get('last_name', '')}",
+                target_link=f"https://vk.com/id{match['id']}"
+            )
+
+            if success:
+                self.notifier.notify_user(user_id, "❤️ Анкета добавлена в избранное")
+            else:
+                self.notifier.notify_user(user_id, "ℹ️ Анкета уже в избранном")
+
+            self._show_next_match(message, user_id)
+        except Exception as e:
+            logger.error(f"Error adding to favorites: {e}")
+            self.notifier.notify_error(message.chat.id, "general")
+
+    def _add_current_match_to_blacklist(self, message: types.Message, user_id: int) -> None:
+        """Добавляет текущую анкету в черный список"""
+        try:
+            if user_id not in self.search_results or user_id not in self.current_match_index:
+                self.notifier.notify_user(user_id, "Нет активных результатов поиска")
+                return
+
+            current_index = self.current_match_index[user_id]
+            match = self.search_results[user_id][current_index]
+
+            success = self.db.add_to_blacklist(
+                telegram_id=user_id,
+                blocked_vk_id=match['id']
+            )
+
+            if success:
+                self.notifier.notify_user(user_id, "🚫 Анкета добавлена в черный список")
+            else:
+                self.notifier.notify_user(user_id, "ℹ️ Анкета уже в черном списке")
+
+            self._show_next_match(message, user_id)
+        except Exception as e:
+            logger.error(f"Error adding to blacklist: {e}")
+            self.notifier.notify_error(message.chat.id, "general")
+
     def _handle_favorites_command(self, message: types.Message):
         """Обработка команды /favorites"""
         try:
@@ -179,12 +303,14 @@ class VKinderBot:
             logger.error(f"Ошибка обработки текста: {e}")
             self._send_error_message(message.chat.id)
 
-    def _create_main_keyboard(self):
-        """Создает основную клавиатуру"""
-        keyboard = types.InlineKeyboardMarkup()
+    def _create_match_keyboard(self) -> types.InlineKeyboardMarkup:
+        """Создает клавиатуру для управления анкетами"""
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
         keyboard.add(
-            types.InlineKeyboardButton("🔍 Поиск", callback_data="search"),
-            types.InlineKeyboardButton("❤️ Избранное", callback_data="favorites")
+            types.InlineKeyboardButton("❤️ В избранное", callback_data="add_favorite"),
+            types.InlineKeyboardButton("🚫 Заблокировать", callback_data="add_blacklist"),
+            types.InlineKeyboardButton("➡️ Следующая", callback_data="next_match"),
+            types.InlineKeyboardButton("🏠 В меню", callback_data="back_to_menu")
         )
         return keyboard
 
