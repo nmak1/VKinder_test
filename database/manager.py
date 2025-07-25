@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any, Iterator
 from sqlalchemy import create_engine, exc
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.exc import SQLAlchemyError
-
+from tenacity import retry, stop_after_attempt, wait_exponential
 from database.models import Base, User, Favorite, Blacklist
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,11 @@ class DatabaseManager:
         except Exception as e:
             logger.critical(f"Failed to initialize DatabaseManager: {e}")
             raise
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def get_user(self, telegram_id: int) -> Optional[User]:
+        with self.session_scope() as session:
+            return session.query(User).filter(User.telegram_id == telegram_id).first()
 
     @contextmanager
     def session_scope(self) -> Iterator[scoped_session]:

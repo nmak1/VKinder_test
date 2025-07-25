@@ -15,6 +15,7 @@ class VKService:
         self.version = version
         self.base_url = 'https://api.vk.com/method/'
 
+
     def _make_request(self, method: str, params: Dict) -> Dict:
         params.update({'access_token': self.token, 'v': self.version})
         time.sleep(settings.REQUEST_DELAY)
@@ -76,3 +77,6 @@ class VKService:
             )[:count]
         except Exception:
             return []
+
+    def calculate_age_from_bdate(self, param):
+        pass
