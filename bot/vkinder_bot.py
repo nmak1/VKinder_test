@@ -202,7 +202,7 @@ class VKinderBot:
     def _handle_search_command(self, message: types.Message) -> None:
         """Обработка команды /search"""
         try:
-            user_id = message.from_user.id
+            user_id = message.chat.id
             user = self.db.get_user(user_id)
 
             if not user:
@@ -444,12 +444,12 @@ class VKinderBot:
                 for i, photo in enumerate(photos[:3]):
                     if i == 0:
                         media.append(types.InputMediaPhoto(
-                            photo['url'],
+                            photo[['sizes'][-1]['url']],
                             caption=match_text,
                             parse_mode="HTML"
                         ))
                     else:
-                        media.append(types.InputMediaPhoto(photo['url']))
+                        media.append(types.InputMediaPhoto(photo[['sizes'][-1]['url']]))
 
                 self.bot.send_media_group(chat_id, media)
             else:
